@@ -23,7 +23,6 @@
  */
 package com.intuit.karate.http;
 
-import com.intuit.karate.resource.ResourceResolver;
 import com.intuit.karate.FileUtils;
 import com.intuit.karate.graal.JsArray;
 import com.intuit.karate.graal.JsValue;
@@ -56,17 +55,26 @@ public class ServerContext implements ProxyObject {
     private static final Logger logger = LoggerFactory.getLogger(ServerContext.class);
 
     private static final String READ = "read";
+    private static final String RESOLVER = "resolver";
+    private static final String READ_AS_STRING = "readAsString";
+    private static final String EVAL = "eval";
+    private static final String EVAL_WITH = "evalWith";
     private static final String UUID = "uuid";
     private static final String REMOVE = "remove";
     private static final String SWITCH = "switch";
+    private static final String SWITCHED = "switched";
     private static final String AJAX = "ajax";
     private static final String HTTP = "http";
     private static final String TRIGGER = "trigger";
+    private static final String REDIRECT = "redirect";
     private static final String AFTER_SETTLE = "afterSettle";
     private static final String TO_JSON = "toJson";
+    private static final String TO_JSON_PRETTY = "toJsonPretty";
     private static final String FROM_JSON = "fromJson";
 
-    private static final String[] KEYS = new String[]{READ, UUID, REMOVE, SWITCH, AJAX, HTTP, TRIGGER, AFTER_SETTLE, TO_JSON, FROM_JSON};
+    private static final String[] KEYS = new String[]{
+        READ, RESOLVER, READ_AS_STRING, EVAL, EVAL_WITH, UUID, REMOVE, SWITCH, SWITCHED, AJAX, HTTP,
+        TRIGGER, REDIRECT, AFTER_SETTLE, TO_JSON, TO_JSON_PRETTY, FROM_JSON};
     private static final Set<String> KEY_SET = new HashSet(Arrays.asList(KEYS));
     private static final JsArray KEY_ARRAY = new JsArray(KEYS);
 
@@ -77,6 +85,7 @@ public class ServerContext implements ProxyObject {
     private boolean api;
     private boolean lockNeeded;
     private Session session;
+    private boolean switched;
 
     private List<Map<String, Object>> responseTriggers;
     private List<String> afterSettleScripts;
@@ -151,24 +160,38 @@ public class ServerContext implements ProxyObject {
         return null;
     }
 
-    public Object read(String resource) {
+    public String readAsString(String resource) {
         InputStream is = config.getResourceResolver().resolve(resource).getStream();
-        String raw = FileUtils.toString(is);
+        return FileUtils.toString(is);
+    }
+
+    public Object read(String resource) {
+        String raw = readAsString(resource);
         ResourceType resourceType = ResourceType.fromFileExtension(resource);
-        if (resourceType == null) {
-            return raw;
-        }
-        switch (resourceType) {
-            case JS:
-            case JSON:
-                return RequestCycle.get().getLocalEngine().evalForValue("(" + raw + ")");
-            default:
-                return raw;
+        if (resourceType == ResourceType.JS) {
+            return eval(raw);
+        } else {
+            return JsValue.fromString(raw, false, resourceType);
         }
     }
 
-    public String toJson(Value value) {
-        return new JsValue(value).toJson();
+    public Object eval(String source) {
+        return RequestCycle.get().getEngine().evalForValue(source);
+    }
+
+    public Object evalWith(Object o, String source) {
+        Value value = Value.asValue(o);
+        return RequestCycle.get().getEngine().evalWith(value, source, true);
+    }
+
+    public String toJson(Object o) {
+        Value value = Value.asValue(o);
+        return new JsValue(value).toJsonOrXmlString(false);
+    }
+
+    public String toJsonPretty(Object o) {
+        Value value = Value.asValue(o);
+        return new JsValue(value).toJsonOrXmlString(true);
     }
 
     public ServerConfig getConfig() {
@@ -236,15 +259,25 @@ public class ServerContext implements ProxyObject {
         }
         afterSettleScripts.add(js);
     }
-    
+
     private static final Supplier<String> UUID_FUNCTION = () -> java.util.UUID.randomUUID().toString();
     private final Function<String, Object> FROM_JSON_FUNCTION = s -> JsValue.fromString(s, false, null);
     private final Methods.FunVar HTTP_FUNCTION; // set in constructor
-    
+
     private final Consumer<String> SWITCH_FUNCTION = s -> {
-        RequestCycle.get().setSwitchTemplate(s);
+        if (switched) {
+            logger.warn("context.switch() can be called only once during a request, ignoring: {}", s);
+        } else {
+            switched = true;
+            RequestCycle.get().setSwitchTemplate(s);
+            throw new RedirectException(s);
+        }
+    };
+
+    private final Consumer<String> REDIRECT_FUNCTION = s -> {
+        RequestCycle.get().setRedirectPath(s);
         throw new RedirectException(s);
-    };    
+    };
 
     private static final BiFunction<Object, Object, Object> REMOVE_FUNCTION = (o, k) -> {
         if (o instanceof Map && k != null) {
@@ -268,22 +301,36 @@ public class ServerContext implements ProxyObject {
         switch (key) {
             case READ:
                 return (Function<String, Object>) this::read;
+            case READ_AS_STRING:
+                return (Function<String, String>) this::readAsString;
+            case EVAL:
+                return (Function<String, Object>) this::eval;
+            case EVAL_WITH:
+                return (BiFunction<Object, String, Object>) this::evalWith;
             case UUID:
                 return UUID_FUNCTION;
             case TO_JSON:
-                return (Function<Value, String>) this::toJson;
+                return (Function<Object, String>) this::toJson;
+            case TO_JSON_PRETTY:
+                return (Function<Object, String>) this::toJsonPretty;
             case FROM_JSON:
                 return FROM_JSON_FUNCTION;
             case REMOVE:
                 return REMOVE_FUNCTION;
             case SWITCH:
                 return SWITCH_FUNCTION;
+            case SWITCHED:
+                return switched;
             case AJAX:
                 return isAjax();
             case HTTP:
                 return HTTP_FUNCTION;
             case TRIGGER:
                 return (Consumer<Map<String, Object>>) this::trigger;
+            case REDIRECT:
+                return REDIRECT_FUNCTION;
+            case RESOLVER:
+                return config.getResourceResolver();
             case AFTER_SETTLE:
                 return (Consumer<String>) this::afterSettle;
             default:

@@ -42,7 +42,7 @@ class JsEngineTest {
         assertTrue(v.isFunction());
         JsValue res = v.invoke();
         assertTrue(res.isArray());
-        assertEquals("[\"a\",\"b\",\"c\"]", res.toJson());
+        assertEquals("[\"a\",\"b\",\"c\"]", res.toJsonOrXmlString(false));
         assertEquals("function(){ return ['a', 'b', 'c'] }", v.toString());
     }
 
@@ -52,7 +52,7 @@ class JsEngineTest {
         assertTrue(v.isFunction());
         JsValue res = v.invoke();
         assertTrue(res.isArray());
-        assertEquals("[\"a\",\"b\",\"c\"]", res.toJson());
+        assertEquals("[\"a\",\"b\",\"c\"]", res.toJsonOrXmlString(false));
         assertEquals("() => ['a', 'b', 'c']", v.toString());
     }
 
@@ -89,7 +89,7 @@ class JsEngineTest {
         assertTrue(v.isFunction());
         JsValue res = v.invoke(1);
         assertTrue(res.isArray());
-        assertEquals("[1,1]", res.toJson());
+        assertEquals("[1,1]", res.toJsonOrXmlString(false));
         assertEquals("x => [x, x]", v.toString());
     }
 
@@ -202,6 +202,15 @@ class JsEngineTest {
         Value function = je.evalForValue("x => { var a = x.a; var b = x.b; return " + src + "; }");
         assertTrue(function.canExecute());
         Value result = function.execute(JsValue.fromJava(map));
+        assertEquals(result.asInt(), 3);
+    }
+
+    @Test
+    void testEvalLocal() {
+        Map<String, Object> map = new HashMap();
+        map.put("a", 1);
+        map.put("b", 2);
+        Value result = je.evalWith(map, "a + b", true);
         assertEquals(result.asInt(), 3);
     }
 

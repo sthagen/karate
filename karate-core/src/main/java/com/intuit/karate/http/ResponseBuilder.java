@@ -149,6 +149,11 @@ public class ResponseBuilder {
     public Response build(RequestCycle rc) {
         Response response = rc.getResponse();
         ServerContext context = rc.getContext();
+        String redirectPath = rc.getRedirectPath();
+        if (redirectPath != null) {
+            header(HttpConstants.HDR_HX_REDIRECT, redirectPath);
+            return status(302);
+        }
         List<Map<String, Object>> triggers = context.getResponseTriggers();
         if (triggers != null) {
             Map<String, Object> merged;
@@ -196,7 +201,7 @@ public class ResponseBuilder {
             }
         }
         if (cookies != null) {
-            cookies.forEach(c -> header(HttpConstants.HDR_SET_COOKIE, ServerCookieEncoder.STRICT.encode(c)));
+            cookies.forEach(c -> header(HttpConstants.HDR_SET_COOKIE, ServerCookieEncoder.LAX.encode(c)));
         }
         return status(response.getStatus());
     }
@@ -210,6 +215,7 @@ public class ResponseBuilder {
         try {
             InputStream is = resourceResolver.resolve(request.getResourcePath()).getStream();
             body(is);
+            header(HttpConstants.HDR_CACHE_CONTROL, "max-age=31536000");
         } catch (Exception e) {
             logger.error("local resource failed: {} - {}", request, e.toString());
         }

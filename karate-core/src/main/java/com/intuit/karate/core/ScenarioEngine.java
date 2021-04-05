@@ -132,7 +132,7 @@ public class ScenarioEngine {
     private ScenarioEngine parent;
 
     public ScenarioEngine child() {
-        ScenarioEngine child = new ScenarioEngine(config, runtime, detachVariables(), logger);
+        ScenarioEngine child = new ScenarioEngine(config, runtime, detachVariables(true), logger);
         child.parent = this;
         if (children == null) {
             children = new ArrayList();
@@ -287,7 +287,7 @@ public class ScenarioEngine {
 
     // http ====================================================================
     //
-    private HttpRequestBuilder requestBuilder; // see init() method
+    protected HttpRequestBuilder requestBuilder; // see init() method
     private HttpRequest request;
     private Response response;
     private Config config;
@@ -409,7 +409,6 @@ public class ScenarioEngine {
         }
     }
 
-    // TODO document new options, [name = map | cookies listOfMaps]
     public void cookies(String exp) {
         Variable var = evalKarateExpression(exp);
         Map<String, Map> cookies = Cookies.normalize(var.getValue());
@@ -581,7 +580,7 @@ public class ScenarioEngine {
         }
         if (hooks != null) {
             hooks.forEach(h -> h.afterHttpCall(request, response, runtime));
-        }        
+        }
         byte[] bytes = response.getBody();
         Object body;
         String responseType;
@@ -996,12 +995,21 @@ public class ScenarioEngine {
     public void init() { // not in constructor because it has to be on Runnable.run() thread 
         JS = JsEngine.local();
         logger.trace("js context: {}", JS);
-        runtime.magicVariables.forEach((k, v) -> setHiddenVariable(k, v));
+        runtime.magicVariables.forEach((k, v) -> {
+            // even hidden variables may need pre-processing
+            // for e.g. the __arg may contain functions that originated in a different js context
+            recurseAndAttach(v);
+            setHiddenVariable(k, v);
+        });
         attachVariables(); // re-hydrate any functions from caller or background
         setHiddenVariable(KARATE, bridge);
         setHiddenVariable(READ, readFunction);
         HttpClient client = runtime.featureRuntime.suite.clientFactory.create(this);
-        requestBuilder = new HttpRequestBuilder(client);
+        // edge case: can be set by dynamic scenario outline background
+        // or be left as-is because a callonce triggered init()
+        if (requestBuilder == null) {
+            requestBuilder = new HttpRequestBuilder(client);
+        }
         // TODO improve life cycle and concept of shared objects
         if (!runtime.caller.isNone()) {
             ScenarioEngine caller = runtime.caller.parentRuntime.engine;
@@ -1041,7 +1049,7 @@ public class ScenarioEngine {
         });
     }
 
-    public Map<String, Variable> detachVariables() {
+    public Map<String, Variable> detachVariables(boolean deep) { // TODO make deep the sole default
         Map<String, Variable> detached = new HashMap(vars.size());
         vars.forEach((k, v) -> {
             switch (v.type) {
@@ -1051,7 +1059,12 @@ public class ScenarioEngine {
                     break;
                 case MAP:
                 case LIST:
-                    recurseAndDetach(v.getValue());
+                    if (deep) {
+                        Object o = recurseAndDetachAndDeepClone(v.getValue());
+                        v = new Variable(o);
+                    } else {
+                        recurseAndDetach(v.getValue());
+                    }
                     break;
                 default:
                 // do nothing
@@ -1064,7 +1077,14 @@ public class ScenarioEngine {
     protected Object recurseAndAttach(Object o) {
         if (o instanceof Value) {
             Value value = (Value) o;
-            return value.canExecute() ? attach(value) : null;
+            try {
+                if (value.canExecute()) {
+                    return attach(value);
+                }
+            } catch (Exception e) {
+                logger.warn("failed to re-attach graal value: {}", e.getMessage());
+            }
+            return null;
         } else if (o instanceof JsFunction) {
             JsFunction jf = (JsFunction) o;
             return attachSource(jf.source);
@@ -1119,6 +1139,61 @@ public class ScenarioEngine {
             return null;
         } else {
             return null;
+        }
+    }
+
+    protected Object recurseAndAttachAndDeepClone(Object o) {
+        if (o instanceof Value) {
+            // should never happen if the detach was done properly
+            Value value = (Value) o;
+            try {
+                if (value.canExecute()) {
+                    return attach(value);
+                }
+                o = JsValue.toJava(value);
+            } catch (Exception e) {
+                logger.warn("failed to re-attach graal value: {}", e.getMessage());
+                return null; // we try to move on after stripping this (js function) from the tree
+            }
+        }
+        if (o instanceof JsFunction) {
+            JsFunction jf = (JsFunction) o;
+            return attachSource(jf.source);
+        } else if (o instanceof List) {
+            List list = (List) o;
+            List copy = new ArrayList(list.size());
+            list.forEach(v -> copy.add(recurseAndAttachAndDeepClone(v)));
+            return copy;
+        } else if (o instanceof Map) {
+            Map<String, Object> map = (Map) o;
+            Map<String, Object> copy = new LinkedHashMap(map.size());
+            map.forEach((k, v) -> copy.put(k, recurseAndAttachAndDeepClone(v)));
+            return copy;
+        } else {
+            return o;
+        }
+    }
+
+    protected Object recurseAndDetachAndDeepClone(Object o) {
+        if (o instanceof Value) {
+            Value value = (Value) o;
+            if (value.canExecute()) {
+                return new JsFunction(value);
+            }
+            o = JsValue.toJava(value);
+        }
+        if (o instanceof List) {
+            List list = (List) o;
+            List copy = new ArrayList(list.size());
+            list.forEach(v -> copy.add(recurseAndDetachAndDeepClone(v)));
+            return copy;
+        } else if (o instanceof Map) {
+            Map<String, Object> map = (Map) o;
+            Map<String, Object> copy = new LinkedHashMap(map.size());
+            map.forEach((k, v) -> copy.put(k, recurseAndDetachAndDeepClone(v)));
+            return copy;
+        } else {
+            return o;
         }
     }
 
@@ -1748,7 +1823,6 @@ public class ScenarioEngine {
         return match(matchType, actual.getValue(), expected.getValue());
     }
 
-    // TODO document that match header is case-insensitive at last
     private Match.Result matchHeader(Match.Type matchType, String name, String exp) {
         Variable expected = evalKarateExpression(exp);
         String actual = response.getHeader(name);
@@ -1875,28 +1949,31 @@ public class ScenarioEngine {
         return result;
     }
 
-    private Variable result(ScenarioCall.Result result, boolean sharedScope) {
+    private Variable callOnceResult(ScenarioCall.Result result, boolean sharedScope) {
         if (sharedScope) { // if shared scope
             vars.clear(); // clean slate
-            vars.putAll(copy(result.vars, false)); // clone for safety     
-            init(); // this will also insert magic variables
-            setConfig(new Config(result.config)); // re-apply config from time of snapshot
+            // deep-clone so that subsequent steps don't modify data / references being passed around
+            result.vars.forEach((k, v) -> vars.put(k, v.copy(true)));
+            init(); // this will attach and also insert magic variables
+            // re-apply config from time of snapshot
+            // and note that setConfig() will attach functions such as configured "headers"
+            setConfig(new Config(result.config));
             return Variable.NULL; // since we already reset the vars above we return null
             // else the call() routine would try to do it again
             // note that shared scope means a return value is meaningless
         } else {
-            return result.value.copy(false); // clone result for safety 
+            // deep-clone for the same reasons mentioned above
+            Object resultValue = recurseAndAttachAndDeepClone(result.value.getValue());
+            return new Variable(resultValue);
         }
     }
 
     private Variable callOnce(String cacheKey, Variable called, Variable arg, boolean sharedScope) {
-        // IMPORTANT: the call result is always shallow-cloned before returning
-        // so that call result (especially if a java Map) is not mutated by other scenarios
         final Map<String, ScenarioCall.Result> CACHE = runtime.featureRuntime.FEATURE_CACHE;
         ScenarioCall.Result result = CACHE.get(cacheKey);
         if (result != null) {
             logger.trace("callonce cache hit for: {}", cacheKey);
-            return result(result, sharedScope);
+            return callOnceResult(result, sharedScope);
         }
         long startTime = System.currentTimeMillis();
         logger.trace("callonce waiting for lock: {}", cacheKey);
@@ -1905,18 +1982,19 @@ public class ScenarioEngine {
             if (result != null) {
                 long endTime = System.currentTimeMillis() - startTime;
                 logger.warn("this thread waited {} milliseconds for callonce lock: {}", endTime, cacheKey);
-                return result(result, sharedScope);
+                return callOnceResult(result, sharedScope);
             }
             // this thread is the 'winner'
             logger.info(">> lock acquired, begin callonce: {}", cacheKey);
             Variable resultValue = call(called, arg, sharedScope);
             // we clone result (and config) here, to snapshot state at the point the callonce was invoked
-            // this prevents the state from being clobbered by the subsequent steps of this
-            // first scenario that is about to use the result
-            Map<String, Variable> clonedVars = called.isFeature() && sharedScope ? detachVariables() : null;
+            // detaching is important (see JsFunction) so that we can keep the source-code aside
+            // and use it to re-create functions in a new JS context - and work around graal-js limitations
+            Map<String, Variable> clonedVars = called.isFeature() && sharedScope ? detachVariables(true) : null;
             Config clonedConfig = new Config(config);
             clonedConfig.detach();
-            result = new ScenarioCall.Result(resultValue.copy(false), clonedConfig, clonedVars);
+            Object resultObject = recurseAndDetachAndDeepClone(resultValue.getValue());
+            result = new ScenarioCall.Result(new Variable(resultObject), clonedConfig, clonedVars);
             CACHE.put(cacheKey, result);
             logger.info("<< lock released, cached callonce: {}", cacheKey);
             return resultValue; // another routine will apply globally if needed

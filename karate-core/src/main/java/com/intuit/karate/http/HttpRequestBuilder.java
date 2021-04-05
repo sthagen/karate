@@ -30,9 +30,9 @@ import com.intuit.karate.graal.JsValue;
 import com.intuit.karate.graal.Methods;
 import com.linecorp.armeria.common.QueryParams;
 import com.linecorp.armeria.common.QueryParamsBuilder;
+import io.netty.handler.codec.http.cookie.ClientCookieEncoder;
 import io.netty.handler.codec.http.cookie.Cookie;
 import io.netty.handler.codec.http.cookie.DefaultCookie;
-import io.netty.handler.codec.http.cookie.ServerCookieEncoder;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -104,7 +104,7 @@ public class HttpRequestBuilder implements ProxyObject {
     }
 
     public HttpRequestBuilder reset() {
-        // url and headersFactory will be retained
+        // url will be retained
         method = null;
         paths = null;
         params = null;
@@ -114,6 +114,20 @@ public class HttpRequestBuilder implements ProxyObject {
         cookies = null;
         retryUntil = null;
         return this;
+    }
+    
+    public HttpRequestBuilder copy() {
+        HttpRequestBuilder hrb = new HttpRequestBuilder(client);
+        hrb.url = url;
+        hrb.method = method;
+        hrb.paths = paths;
+        hrb.params = params;
+        hrb.headers = headers;
+        hrb.multiPart = multiPart;
+        hrb.body = body;
+        hrb.cookies = cookies;
+        hrb.retryUntil = retryUntil;
+        return hrb;
     }
 
     public Response invoke(String method) {
@@ -171,7 +185,7 @@ public class HttpRequestBuilder implements ProxyObject {
         if (cookies != null && !cookies.isEmpty()) {
             List<String> cookieValues = new ArrayList(cookies.size());
             for (Cookie c : cookies) {
-                String cookieValue = ServerCookieEncoder.STRICT.encode(c);
+                String cookieValue = ClientCookieEncoder.LAX.encode(c);
                 cookieValues.add(cookieValue);
             }
             header(HttpConstants.HDR_COOKIE, cookieValues);

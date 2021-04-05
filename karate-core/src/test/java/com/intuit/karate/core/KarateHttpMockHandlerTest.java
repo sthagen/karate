@@ -3,6 +3,8 @@ package com.intuit.karate.core;
 import static com.intuit.karate.TestUtils.*;
 import static com.intuit.karate.TestUtils.runScenario;
 import com.intuit.karate.http.HttpServer;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
@@ -99,7 +101,7 @@ class KarateHttpMockHandlerTest {
                 "cookie foo = { value: 'bar', samesite: 'Strict', secure: true }",
                 "method get"
         );
-        matchVarContains("response", "{ cookie: ['foo=bar; Secure; SameSite=Strict'] }");
+        matchVarContains("response", "{ cookie: ['foo=bar'] }");
     }
 
     @Test
@@ -130,7 +132,7 @@ class KarateHttpMockHandlerTest {
         );
         matchVarContains("response", "{ 'content-type': ['application/xxx.pingixxxxxx.checkUsernamePassword+json'] }");
     }
-    
+
     @Test
     void testInspectRequestInHeadersFunction() {
         background().scenario(
@@ -143,10 +145,10 @@ class KarateHttpMockHandlerTest {
                 "path '/hello'",
                 "request 'some text'",
                 "method post"
-        );        
-        matchVarContains("response", "{ 'api-key': ['some text'] }");        
+        );
+        matchVarContains("response", "{ 'api-key': ['some text'] }");
     }
-    
+
     @Test
     void testKarateRemove() {
         background().scenario(
@@ -159,10 +161,10 @@ class KarateHttpMockHandlerTest {
                 urlStep(),
                 "path '/hello/1'",
                 "method get"
-        );        
-        matchVarContains("response", "{ '2': 'bar' }");          
+        );
+        matchVarContains("response", "{ '2': 'bar' }");
     }
-    
+
     @Test
     void testTransferEncoding() {
         background().scenario(
@@ -175,10 +177,10 @@ class KarateHttpMockHandlerTest {
                 "header Transfer-Encoding = 'chunked'",
                 "request { foo: 'bar' }",
                 "method post"
-        );        
-        matchVarContains("response", "{ foo: 'bar' }");         
+        );
+        matchVarContains("response", "{ foo: 'bar' }");
     }
-    
+
     @Test
     void testMalformedMockResponse() {
         background().scenario(
@@ -191,9 +193,31 @@ class KarateHttpMockHandlerTest {
                 "method get",
                 "match response == '{ \"id\" \"123\" }'",
                 "match responseType == 'string'"
-        );        
+        );
         Object response = get("response");
         assertEquals(response, "{ \"id\" \"123\" }");
+    }
+
+    @Test
+    void testRedirectAfterPostWithCookie() {
+        background()
+                .scenario("pathMatches('/first')",
+                        "def responseHeaders = { 'Set-Cookie': 'foo1=bar1', Location: '/second' }",
+                        "def responseStatus = 302")
+                .scenario("pathMatches('/second')",
+                        "def response = requestHeaders",
+                        "def responseHeaders = { 'Set-Cookie': 'foo2=bar2' }");
+        startMockServer();
+        run(
+                urlStep(),
+                "path '/first'",
+                "form fields { username: 'blah', password: 'blah' }",
+                "method post"
+        );
+        matchVarContains("response", "{ cookie: ['foo1=bar1'] }");
+        Map<String, Object> map = (Map) get("responseHeaders");
+        List<String> list = (List) map.get("Set-Cookie");
+        matchContains(list, "['foo1=bar1; Domain=localhost', 'foo2=bar2; Domain=localhost']");
     }
 
 }

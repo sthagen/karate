@@ -285,7 +285,7 @@ All you need is available in the [`karate-core`](https://search.maven.org/artifa
 <dependency>
     <groupId>com.intuit.karate</groupId>
     <artifactId>karate-junit5</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
     <scope>test</scope>
 </dependency>
 ```
@@ -296,7 +296,7 @@ If you want to use [JUnit 4](#junit-4), use `karate-junit4` instead of `karate-j
 Alternatively for [Gradle](https://gradle.org):
 
 ```yml
-    testCompile 'com.intuit.karate:karate-junit5:1.0.0'
+    testCompile 'com.intuit.karate:karate-junit5:1.0.1'
 ```
 
 Also refer to the wiki for using [Karate with Gradle](https://github.com/intuit/karate/wiki/Gradle).
@@ -312,7 +312,7 @@ You can replace the values of `com.mycompany` and `myproject` as per your needs.
 mvn archetype:generate \
 -DarchetypeGroupId=com.intuit.karate \
 -DarchetypeArtifactId=karate-archetype \
--DarchetypeVersion=1.0.0 \
+-DarchetypeVersion=1.0.1 \
 -DgroupId=com.mycompany \
 -DartifactId=myproject
 ```
@@ -1053,7 +1053,15 @@ A few special built-in variables such as `$` (which is a [reference to the JSON 
 A [special case](#remove-if-null) of embedded expressions can remove a JSON key (or XML element / attribute) if the expression evaluates to `null`.
 
 #### Rules for Embedded Expressions
-* They work only within JSON or XML and when on the Right Hand Side of a `def` or `match` or when you [`read()`](#reading-files) a JSON or XML file. And the expression *has* to start with `"#(` and end with `)` - so note that string-concatenation may not work quite the way you expect:
+* They work only within JSON or XML
+* and when on the Right Hand Side of a 
+  * [`def`](#def)
+  * [`match`](#match)
+  * [`configure`](#configure)
+* and when you [`read()`](#reading-files) a JSON or XML file
+* the expression *has* to start with `"#(` and end with `)`
+  
+Because of the last rule above, note that string-concatenation may not work quite the way you expect:
 
 ```cucumber
 # wrong !
@@ -1077,7 +1085,7 @@ As a convenience, embedded expressions are supported on the Right Hand Side of a
 And do note that in Karate 1.0 onwards, ES6 string-interpolation within "backticks" is supported:
 
 ```cucumber
-*And* param filter = `ORDER_DATE:"${todaysDate}"`
+* param filter = `ORDER_DATE:"${todaysDate}"`
 ```
 
 ### Enclosed JavaScript
@@ -3281,7 +3289,7 @@ Scenario: some scenario
 
 The contents of `my-signin.feature` are shown below. A few points to note:
 * Karate creates a new 'context' for the feature file being invoked but passes along all variables and configuration. This means that all your [config variables](#configuration) and [`configure` settings](#configure) would be available to use, for example `loginUrlBase` in the example below. 
-* When you use [`def`](#def) in the 'called' feature, it will **not** over-write variables in the 'calling' feature (unless you explicitly choose to use [shared scope](#shared-scope)). But note that JSON, XML, Map-like or List-like variables are 'passed by reference' which means that 'called' feature steps can *update* or 'mutate' them using the [`set`](#set) keyword. Use the [`copy`](#copy) keyword to 'clone' a JSON or XML payload if needed, and refer to this example for more details: [`copy-caller.feature`](karate-junit4/src/test/java/com/intuit/karate/junit4/demos/copy-caller.feature).
+* When you use [`def`](#def) in the 'called' feature, it will **not** over-write variables in the 'calling' feature (unless you explicitly choose to use [shared scope](#shared-scope)). But note that JSON, XML, Map-like or List-like variables are 'passed by reference' which means that 'called' feature steps can *update* or 'mutate' them using the [`set`](#set) keyword. Use the [`copy`](#copy) keyword to 'clone' a JSON or XML payload if needed, and refer to this example for more details: [`copy.feature`](karate-core/src/test/java/com/intuit/karate/core/copy.feature).
 * You can add (or over-ride) variables by passing a call 'argument' as shown above. Only one JSON argument is allowed, but this does not limit you in any way as you can use any complex JSON structure. You can even initialize the JSON in a separate step and pass it by name, especially if it is complex. Observe how using JSON for parameter-passing makes things super-readable. In the 'called' feature, the argument can also be accessed using the built-in variable: [`__arg`](#built-in-variables-for-call).
 * Note that any `call` argument will be shown in the HTML reports by default, make sure you are aware of the [Log Masking Caveats](#log-masking-caveats)
 * **All** variables that were defined (using [`def`](#def)) in the 'called' script would be returned as 'keys' within a JSON-like object. Note that this includes ['built-in' variables](#special-variables), which means that things like the last value of [`response`](#response) would also be present. In the example above you can see that the JSON 'envelope' returned - is assigned to the variable named `signIn`. And then getting hold of any data that was generated by the 'called' script is as simple as accessing it by name, for example `signIn.authToken` as shown above. This design has the following advantages:
@@ -3389,7 +3397,7 @@ Some users need "callable" features that are re-usable even when variables have 
 > A word of caution: we recommend that you should not over-use Karate's capability of being able to re-use features. Re-use can sometimes result in negative benefits - especially when applied to test-automation. Prefer readability over re-use. See this for an [example](https://stackoverflow.com/a/54126724/143475).
 
 ### `copy`
-For a [`call`](#call) (or [`callonce`](#callonce)) - payload / data structures (JSON, XML, Map-like or List-like) variables are 'passed by reference' which means that steps within the 'called' feature can update or 'mutate' them, for e.g. using the [`set`](#set) keyword. This is actually the intent most of the time and is convenient. If you want to pass a 'clone' to a 'called' feature, you can do so using the rarely used `copy` keyword that works very similar to [type conversion](#type-conversion). This is best explained in the last scenario of this example: [`copy-caller.feature`](karate-junit4/src/test/java/com/intuit/karate/junit4/demos/copy-caller.feature)
+For a [`call`](#call) (or [`callonce`](#callonce)) - payload / data structures (JSON, XML, Map-like or List-like) variables are 'passed by reference' which means that steps within the 'called' feature can update or 'mutate' them, for e.g. using the [`set`](#set) keyword. This is actually the intent most of the time and is convenient. If you want to pass a 'clone' to a 'called' feature, you can do so using the rarely used `copy` keyword that works very similar to [type conversion](#type-conversion). This is best explained in this example: [`copy.feature`](karate-core/src/test/java/com/intuit/karate/core/copy.feature).
 
 ## Calling JavaScript Functions
 Examples of [defining and using JavaScript functions](#javascript-functions) appear in earlier sections of this document. Being able to define and re-use JavaScript functions is a powerful capability of Karate. For example, you can:
@@ -3533,7 +3541,7 @@ First the JavaScript file, `basic-auth.js`:
 function fn(creds) {
   var temp = creds.username + ':' + creds.password;
   var Base64 = Java.type('java.util.Base64');
-  var encoded = Base64.getEncoder().encodeToString(temp.getBytes());
+  var encoded = Base64.getEncoder().encodeToString(temp.toString().getBytes());
   return 'Basic ' + encoded;
 }
 ```
@@ -3903,7 +3911,7 @@ Refer to this example:
 * [`karate-config.js`](karate-demo/src/test/java/karate-config.js)
 * [`headers-single.feature`](karate-demo/src/test/java/demo/headers/headers-single.feature)
 
-> You *can* use `karate.callSingle()` directly in a `*.feature` file, but it logically fits better in the global "bootstrap".
+You *can* use `karate.callSingle()` directly in a `*.feature` file, but it logically fits better in the global "bootstrap". Ideally it should return "pure JSON" and note that you always get a "deep clone" of the cached result object.
 
 #### `configure callSingleCache`
 When re-running tests in development mode and when your test suite depends on say an `Authorization` header set by [`karate.callSingle()`](#karatecallsingle), you can cache the results locally to a file, which is very convenient when your "auth token" is valid for a period of a few minutes - which typically is the case. This means that as long as the token "on file" is valid, you can save time by not having to make the one or two HTTP calls needed to "sign-in" or create "throw-away" users in your SSO store.

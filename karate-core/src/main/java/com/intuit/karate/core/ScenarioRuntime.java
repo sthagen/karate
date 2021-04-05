@@ -29,7 +29,6 @@ import com.intuit.karate.LogAppender;
 import com.intuit.karate.Logger;
 import com.intuit.karate.RuntimeHook;
 import com.intuit.karate.ScenarioActions;
-import com.intuit.karate.Suite;
 import com.intuit.karate.debug.DebugThread;
 import com.intuit.karate.http.ResourceType;
 import com.intuit.karate.shell.StringLogAppender;
@@ -94,9 +93,9 @@ public class ScenarioRuntime implements Runnable {
         result = new ScenarioResult(scenario);
         if (background != null) {
             result.addStepResults(background.result.getStepResults());
-            Map<String, Variable> detached = background.engine.detachVariables();
-            // the copy is needed to "detach" from the js context else this can fail parallel execution
-            detached.forEach((k, v) -> engine.vars.put(k, v.copy(false)));
+            Map<String, Variable> detached = background.engine.detachVariables(true);            
+            detached.forEach((k, v) -> engine.vars.put(k, v));
+            engine.requestBuilder = background.engine.requestBuilder.copy();
         }
         dryRun = featureRuntime.suite.dryRun;
         tags = scenario.getTagsEffective();
@@ -266,7 +265,7 @@ public class ScenarioRuntime implements Runnable {
             // so we inject the parent magic variables
             // but they will be over-written by what is local to this scenario
             map.putAll(caller.parentRuntime.magicVariables);
-            map.put("__arg", caller.arg);
+            map.put("__arg", caller.arg == null ? null : caller.arg.getValue());
             map.put("__loop", caller.getLoopIndex());
             if (caller.arg != null && caller.arg.isMap()) {
                 engine.setVariables(caller.arg.getValue());

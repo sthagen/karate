@@ -59,12 +59,11 @@ public class RequestCycle {
     }
 
     private final JsEngine engine;
-
-    private JsEngine localEngine;
     private Session session;
     private Response response;
     private ServerContext context;
     private String switchTemplate;
+    private String redirectPath;
 
     public RequestCycle(JsEngine engine) {
         this.engine = engine;
@@ -88,14 +87,6 @@ public class RequestCycle {
         THREAD_LOCAL.remove();
     }
 
-    public JsEngine getLocalEngine() {
-        return localEngine;
-    }
-
-    public void setLocalEngine(JsEngine localEngine) {
-        this.localEngine = localEngine;
-    }
-
     public Session getSession() {
         return session;
     }
@@ -116,15 +107,18 @@ public class RequestCycle {
         this.switchTemplate = switchTemplate;
     }
 
-    public String getAndClearSwitchTemplate() {
-        if (switchTemplate == null) {
-            return null;
-        }
-        String temp = switchTemplate;
-        switchTemplate = null;
-        return temp;
+    public String getSwitchTemplate() {
+        return switchTemplate;
     }
-    
+
+    public void setRedirectPath(String redirectPath) {
+        this.redirectPath = redirectPath;
+    }
+
+    public String getRedirectPath() {
+        return redirectPath;
+    }
+
     public void init(ServerContext context, Session session) {
         this.context = context;
         if (session != null) {
